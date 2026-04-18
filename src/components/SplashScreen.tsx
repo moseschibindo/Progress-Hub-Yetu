@@ -80,7 +80,7 @@ const SplashScreen: React.FC = () => {
             />
           ) : (
             <div className="w-32 h-32 bg-gradient-to-br from-emerald-400 to-emerald-600 rounded-[32px] flex items-center justify-center text-white text-5xl font-black shadow-2xl relative z-10 border border-white/10">
-              {settings.app_name?.charAt(0) || 'G'}
+              {settings.app_name?.charAt(0) || 'L'}
             </div>
           )}
         </motion.div>

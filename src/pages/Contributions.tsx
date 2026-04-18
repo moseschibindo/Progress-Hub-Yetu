@@ -4,16 +4,18 @@ import { Search, DollarSign, Calendar, ArrowUpRight, Filter, X, ChevronDown, Che
 import { supabase } from '../lib/supabase';
 import { Contribution } from '../types';
 import { formatCurrency, cn } from '../lib/utils';
-import { format, differenceInWeeks, startOfWeek, addDays } from 'date-fns';
+import { format, addDays, startOfWeek, differenceInCalendarWeeks } from 'date-fns';
+import { useSettings } from '../context/SettingsContext';
 
 const Contributions: React.FC = () => {
+  const { settings } = useSettings();
   const [contributions, setContributions] = useState<Contribution[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState<'all' | 'recent' | 'large'>('all');
   const [expandedWeeks, setExpandedWeeks] = useState<Record<string, boolean>>({});
 
-  const BASE_DATE = new Date('2026-04-06T00:00:00Z'); // Monday, April 6th, 2026
+  const BASE_DATE = startOfWeek(new Date(settings.launch_date || '2026-04-06'), { weekStartsOn: 1 });
 
   useEffect(() => {
     const fetchContributions = async () => {
@@ -38,15 +40,9 @@ const Contributions: React.FC = () => {
 
   const getWeekKey = (date: Date) => {
     const d = new Date(date);
-    
-    // Everything before Monday, April 6th is Week 1
-    if (d < BASE_DATE) {
-      return 'Week 1: Launch - Apr 5, 2026';
-    }
-    
-    const weeksDiff = differenceInWeeks(d, BASE_DATE);
-    const weekNum = weeksDiff + 2; // New flow starts from Week 2
-    const weekStart = addDays(BASE_DATE, weeksDiff * 7);
+    const weekIdx = Math.max(0, differenceInCalendarWeeks(d, BASE_DATE, { weekStartsOn: 1 }));
+    const weekNum = weekIdx + 1;
+    const weekStart = addDays(BASE_DATE, weekIdx * 7);
     const weekEnd = addDays(weekStart, 6);
     
     return `Week ${weekNum}: ${format(weekStart, 'MMM d')} - ${format(weekEnd, 'MMM d, yyyy')}`;
