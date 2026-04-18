@@ -12,7 +12,7 @@ const SettingsContext = createContext<SettingsContextType | undefined>(undefined
 
 export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [settings, setSettings] = useState<Record<string, string>>({
-    app_name: 'Legacy Fund',
+    app_name: 'Progress Hub Tetu',
     app_slogan: 'Secure Your Future, Together',
     app_logo: '',
     hero_image: '',
