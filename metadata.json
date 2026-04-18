@@ -1,6 +1,5 @@
 {
-  "name": "Progress Hub Yetu",
-  "description": "A comprehensive community management platform for Progress Hub Yetu, featuring members directory, financial tracking, and organizational governance.",
-  "requestFramePermissions": [],
-  "majorCapabilities": []
+  "name": "Legacy Fund",
+  "description": "A modern group savings and legacy management platform for organizations and families.",
+  "requestFramePermissions": []
 }

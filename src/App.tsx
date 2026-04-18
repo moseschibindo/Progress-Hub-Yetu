@@ -1,8 +1,3 @@
-/**
- * @license
- * SPDX-License-Identifier: Apache-2.0
- */
-
 import React, { useState, useEffect } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { AuthProvider, useAuth } from './context/AuthContext';
@@ -15,8 +10,6 @@ import SplashScreen from './components/SplashScreen';
 import Header from './components/Header';
 import BottomNav from './components/BottomNav';
 import Sidebar from './components/Sidebar';
-import SetupGuide from './components/SetupGuide';
-import { isSupabaseConfigured } from './lib/supabase';
 
 // Pages
 import Login from './pages/Login';
@@ -26,11 +19,6 @@ import Profile from './pages/Profile';
 import Admin from './pages/Admin';
 import Members from './pages/Members';
 import Contributions from './pages/Contributions';
-import Treasury from './pages/Treasury';
-import Constitution from './pages/Constitution';
-import Executive from './pages/Executive';
-import Projects from './pages/Projects';
-import Resources from './pages/Resources';
 
 const ProfileGuard: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { profile, loading } = useAuth();
@@ -62,14 +50,6 @@ const AppContent: React.FC = () => {
 
   if (loading) return null;
 
-  if (!isSupabaseConfigured) {
-    return (
-      <div className={theme}>
-        <SetupGuide />
-      </div>
-    );
-  }
-
   return (
     <div className={theme}>
       <AnimatePresence mode="wait">
@@ -89,7 +69,7 @@ const AppContent: React.FC = () => {
               </div>
 
               {/* Main Content Area */}
-              <div className="flex-1 flex flex-col min-w-0 overflow-hidden relative pt-16 md:pt-0">
+              <div className="flex-1 flex flex-col min-w-0 overflow-hidden relative">
                 <div className="w-full max-w-5xl mx-auto bg-white dark:bg-[#111111] h-full shadow-xl flex flex-col relative md:shadow-none md:border-l md:border-r md:border-gray-100 dark:md:border-gray-800 transition-colors duration-300 overflow-hidden">
                   <main className="flex-1 overflow-y-auto no-scrollbar overscroll-contain">
                     <ProfileGuard>
@@ -99,11 +79,6 @@ const AppContent: React.FC = () => {
                         <Route path="/profile" element={<Profile />} />
                         <Route path="/members" element={<Members />} />
                         <Route path="/contributions" element={<Contributions />} />
-                        <Route path="/treasury" element={<Treasury />} />
-                        <Route path="/constitution" element={<Constitution />} />
-                        <Route path="/executive" element={<Executive />} />
-                        <Route path="/projects" element={<Projects />} />
-                        <Route path="/resources" element={<Resources />} />
                         <Route path="/admin" element={profile?.role === 'admin' ? <Admin /> : <Navigate to="/" />} />
                         <Route path="*" element={<Navigate to="/" />} />
                       </Routes>

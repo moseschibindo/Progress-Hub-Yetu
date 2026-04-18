@@ -1,206 +1,412 @@
-import React, { useEffect, useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { motion } from 'motion/react';
-import { useAuth } from '../context/AuthContext';
+import { Wallet, TrendingUp, History, Calendar, ArrowUpRight, AlertCircle, Users, PieChart, X } from 'lucide-react';
 import { supabase } from '../lib/supabase';
-import { 
-  Users, 
-  Wallet, 
-  ArrowUpRight, 
-  TrendingUp,
-  Clock,
-  ChevronRight,
-  Zap,
-  Activity
-} from 'lucide-react';
-import { cn } from '../lib/utils';
-
+import { useAuth } from '../context/AuthContext';
+import { useTheme } from '../context/ThemeContext';
 import { useSettings } from '../context/SettingsContext';
+import { Contribution } from '../types';
+import { formatCurrency, cn } from '../lib/utils';
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts';
+import { format, differenceInWeeks, addDays, startOfWeek, differenceInCalendarWeeks } from 'date-fns';
 
 const Dashboard: React.FC = () => {
-  const { profile } = useAuth();
-  const { appSettings } = useSettings();
-  const currency = appSettings?.currency || 'Ksh';
-  const [stats, setStats] = useState([
-    { label: 'Total Members', value: '0', icon: Users, color: 'blue', change: '...' },
-    { label: 'Group Savings', value: '0', icon: Wallet, color: 'emerald', change: '...' },
-    { label: 'Hub Rating', value: '0%', icon: Activity, color: 'orange', change: '...' },
-  ]);
-  const [recentActivities, setRecentActivities] = useState<any[]>([]);
-  const [netBalance, setNetBalance] = useState(0);
+  const { user, profile } = useAuth();
+  const { theme } = useTheme();
+  const { settings } = useSettings();
+  const chartContainerRef = React.useRef<HTMLDivElement>(null);
+  const [userContributions, setUserContributions] = useState<Contribution[]>([]);
+  const [allContributions, setAllContributions] = useState<Contribution[]>([]);
   const [loading, setLoading] = useState(true);
+  const [showImageModal, setShowImageModal] = useState<string | null>(null);
+  const [stats, setStats] = useState({
+    userTotal: 0,
+    groupTotal: 0,
+    ownership: 0,
+    userCount: 0,
+    missed: 0,
+    userShares: 0,
+    groupShares: 0,
+  });
+
+  const BASE_DATE = new Date(settings.launch_date || '2026-04-06T00:00:00Z'); 
+  const SHARE_VALUE = parseFloat(settings.share_value || '25');
+
+  const fetchData = async () => {
+    if (!user) return;
+
+    // Fetch all contributions for group stats and chart
+    const { data: allData, error: allError } = await supabase
+      .from('contributions')
+      .select('*, profiles(name, profile_picture)')
+      .order('date', { ascending: false });
+
+    if (!allError && allData) {
+      setAllContributions(allData);
+      
+      const groupTotal = allData.reduce((acc, curr) => acc + curr.amount, 0);
+      const userData = allData.filter(c => c.user_id === user.id);
+      setUserContributions(userData);
+      
+      const userTotal = userData.reduce((acc, curr) => acc + curr.amount, 0);
+      const userCount = userData.length;
+      const ownership = groupTotal > 0 ? (userTotal / groupTotal) * 100 : 0;
+      const userShares = userTotal / SHARE_VALUE;
+      const groupShares = groupTotal / SHARE_VALUE;
+      
+      // Calculate missed Sundays
+      const joinDate = new Date(profile?.created_at || new Date());
+      const now = new Date();
+      let expectedSundays = 0;
+      let tempDate = startOfWeek(joinDate, { weekStartsOn: 0 });
+      
+      while (tempDate <= now) {
+        expectedSundays++;
+        tempDate = new Date(tempDate.getTime() + 7 * 24 * 60 * 60 * 1000);
+      }
+      
+      const missed = Math.max(0, expectedSundays - userCount);
+      
+      setStats({ 
+        userTotal, 
+        groupTotal, 
+        ownership, 
+        userCount, 
+        missed,
+        userShares,
+        groupShares
+      });
+    }
+    setLoading(false);
+  };
 
   useEffect(() => {
-    const fetchDashboardData = async () => {
-      try {
-        // Fetch Member Count
-        const { count: memberCount } = await supabase
-          .from('profiles')
-          .select('*', { count: 'exact', head: true });
+    fetchData();
 
-        // Fetch Total Contributions
-        const { data: contribData } = await supabase
-          .from('contributions')
-          .select('amount')
-          .eq('status', 'verified');
-        
-        // Fetch Expenditures for Net Balance
-        const { data: expData } = await supabase
-          .from('expenditures')
-          .select('amount');
-
-        // Fetch Fines
-        const { data: fineData } = await supabase
-          .from('fines')
-          .select('amount')
-          .eq('status', 'paid');
-        
-        const totalSavings = (contribData as any[])?.reduce((sum, c) => sum + Number(c.amount), 0) || 0;
-        const totalExps = (expData as any[])?.reduce((sum, e) => sum + Number(e.amount), 0) || 0;
-        const totalFines = (fineData as any[])?.reduce((sum, f) => sum + Number(f.amount), 0) || 0;
-        
-        setNetBalance(totalSavings + totalFines - totalExps);
-
-        // Fetch Recent Activity
-        const { data: activitiesData } = await supabase
-          .from('activities')
-          .select('*, profiles(name)')
-          .order('created_at', { ascending: false })
-          .limit(5);
-
-        setStats([
-          { label: 'Total Members', value: (memberCount || 0).toString(), icon: Users, color: 'blue', change: '+0%' },
-          { label: 'Active Contributions', value: `${currency} ${totalSavings.toLocaleString()}`, icon: Wallet, color: 'emerald', change: '+0%' },
-          { label: 'Pulse Rating', value: '98.2%', icon: Activity, color: 'orange', change: '+1.2%' },
-        ]);
-
-        if (activitiesData) {
-          setRecentActivities(activitiesData.map(a => ({
-            id: a.id,
-            user: (a as any).profiles?.name || 'System',
-            action: a.content,
-            time: new Date(a.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-            type: a.type
-          })));
-        }
-
-      } catch (err) {
-        console.error('Error fetching dashboard data:', err);
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    fetchDashboardData();
-
-    // Subscribe to pulse stream
-    const activitySubscription = supabase
-      .channel('public:activities')
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'activities' }, payload => {
-        // Refresh activity feed
-        fetchDashboardData();
+    // Listen to all contribution changes for real-time group updates
+    const channel = supabase
+      .channel('dashboard-group-updates')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'contributions' }, () => {
+        fetchData();
       })
       .subscribe();
 
     return () => {
-      activitySubscription.unsubscribe();
+      supabase.removeChannel(channel);
     };
-  }, []);
+  }, [user, profile]);
+
+  // Auto-scroll the chart to the far right after loading data
+  useEffect(() => {
+    if (!loading && chartContainerRef.current) {
+      chartContainerRef.current.scrollLeft = chartContainerRef.current.scrollWidth;
+    }
+  }, [loading, allContributions]);
+
+  // Weekly chart data starting from the earliest contribution
+  const getWeeklyChartData = () => {
+    if (allContributions.length === 0) return [];
+    
+    const dates = allContributions.map(c => new Date(c.date).getTime());
+    const minTime = Math.min(...dates, BASE_DATE.getTime());
+    const maxTime = Math.max(...dates, new Date().getTime());
+    
+    const startDate = startOfWeek(new Date(minTime), { weekStartsOn: 1 }); // Start on Monday
+    const endDate = new Date(maxTime);
+    
+    const weeklyData: Record<string, { amount: number; dateRange: string }> = {};
+    const totalWeeks = Math.max(1, differenceInCalendarWeeks(endDate, startDate, { weekStartsOn: 1 }) + 1);
+
+    for (let i = 0; i < totalWeeks; i++) {
+        const weekStart = addDays(startDate, i * 7);
+        const weekEnd = addDays(weekStart, 6);
+        const label = `W${i + 1}`;
+        weeklyData[label] = { 
+            amount: 0, 
+            dateRange: `${format(weekStart, 'MMM d')} - ${format(weekEnd, 'MMM d')}` 
+        };
+    }
+
+    allContributions.forEach(c => {
+      const d = new Date(c.date);
+      const weekIdx = Math.max(0, differenceInCalendarWeeks(d, startDate, { weekStartsOn: 1 }));
+      const label = `W${weekIdx + 1}`;
+      if (weeklyData[label] !== undefined) {
+        weeklyData[label].amount += c.amount;
+      }
+    });
+
+    return Object.entries(weeklyData).map(([week, data]) => ({ 
+        week, 
+        amount: data.amount,
+        dateRange: data.dateRange
+    }));
+  };
+
+  const chartData = getWeeklyChartData();
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center min-h-[60vh]">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-emerald-600"></div>
+      </div>
+    );
+  }
 
   return (
-    <div className="p-6 md:p-10 space-y-10">
-      {/* Welcome Header */}
-      <header className="flex flex-col md:flex-row md:items-center justify-between gap-6">
+    <div className="p-4 space-y-6 pb-24 transition-colors duration-300">
+      {/* Welcome Section */}
+      <motion.div
+        initial={{ opacity: 0, y: -10 }}
+        animate={{ opacity: 1, y: 0 }}
+        className="flex items-center justify-between"
+      >
         <div>
-          <h2 className="text-3xl font-bold tracking-tight text-black dark:text-white">
-            Welcome <span className="text-gray-400 dark:text-gray-500">Back</span>
-          </h2>
-          <p className="mt-1 text-gray-500 font-medium">Hello, {profile?.name || 'Friend'}</p>
+          <h2 className="text-2xl font-bold text-gray-900 dark:text-white">Hello, {profile?.name?.split(' ')[0]}!</h2>
+          <p className="text-gray-500 dark:text-gray-400 text-sm">Real-time {settings.app_name} Dashboard</p>
         </div>
-
-        <div className="flex items-center gap-6 px-8 py-5 bg-black dark:bg-white rounded-[1.5rem] text-white dark:text-black shadow-xl">
-           <div className="flex flex-col">
-              <span className="text-[10px] font-bold uppercase tracking-widest opacity-40">Group Money</span>
-              <span className="text-2xl font-bold tracking-tight">{currency} {netBalance.toLocaleString()}</span>
-           </div>
-           <div className="w-px h-8 bg-white/10 dark:bg-black/10"></div>
-           <TrendingUp className="w-5 h-5 text-emerald-500" />
+        <div className="bg-emerald-100 dark:bg-emerald-900/30 p-2 rounded-xl text-emerald-600 dark:text-emerald-400">
+          <Calendar size={20} />
         </div>
-      </header>
+      </motion.div>
 
-      {/* Stats Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        {stats.map((stat, i) => (
-          <motion.div
-            key={stat.label}
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: i * 0.1 }}
-            className="group p-8 bg-gray-50 dark:bg-gray-900 rounded-[2.5rem] border border-gray-100 dark:border-gray-800 hover:bg-black dark:hover:bg-white transition-all duration-500 hover:shadow-2xl hover:-translate-y-2 cursor-pointer relative overflow-hidden"
-          >
-            <div className="flex items-center justify-between mb-8">
-              <div className={cn(
-                "w-14 h-14 rounded-2xl flex items-center justify-center transition-all duration-500 group-hover:bg-white dark:group-hover:bg-black",
-                stat.color === 'blue' && "bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400",
-                stat.color === 'emerald' && "bg-emerald-100 dark:bg-emerald-900/30 text-emerald-600 dark:text-emerald-400",
-                stat.color === 'orange' && "bg-orange-100 dark:bg-orange-900/30 text-orange-600 dark:text-orange-400",
-              )}>
-                <stat.icon className="w-7 h-7" />
-              </div>
-              <div className="flex items-center gap-1 text-xs font-black tracking-widest uppercase opacity-60 group-hover:text-white dark:group-hover:text-black">
-                <TrendingUp className="w-3 h-3" />
-                {stat.change}
+      {/* Main Stats Card */}
+      <motion.div
+        initial={{ opacity: 0, scale: 0.95 }}
+        animate={{ opacity: 1, scale: 1 }}
+        className="bg-emerald-600 dark:bg-emerald-700 rounded-3xl p-6 text-white shadow-lg shadow-emerald-200 dark:shadow-none relative overflow-hidden"
+      >
+        <div className="relative z-10 space-y-6">
+          <div className="flex justify-between items-start">
+            <div>
+              <p className="text-emerald-100 text-xs font-medium uppercase tracking-wider">Your Total Savings</p>
+              <h3 className="text-4xl font-bold mt-1">{formatCurrency(stats.userTotal)}</h3>
+              <div className="flex items-center mt-2 text-emerald-100 text-[10px] font-bold uppercase tracking-widest bg-white/10 w-fit px-2 py-1 rounded-lg">
+                <PieChart size={12} className="mr-1" />
+                {stats.userShares.toFixed(2)} Shares
               </div>
             </div>
-            <p className="text-[11px] font-bold text-gray-400 uppercase tracking-[0.2em] mb-1 group-hover:text-white/50 dark:group-hover:text-black/50">{stat.label}</p>
-            <h3 className="text-4xl font-black tracking-tighter text-black dark:text-white group-hover:text-white dark:group-hover:text-black transition-colors">{stat.value}</h3>
-          </motion.div>
-        ))}
+            <div className="bg-white/20 p-3 rounded-2xl backdrop-blur-md">
+              <Wallet size={24} />
+            </div>
+          </div>
+          
+          <div className="grid grid-cols-2 gap-4 pt-4 border-t border-white/10">
+            <div>
+              <p className="text-emerald-100 text-[10px] font-bold uppercase tracking-widest">Group Total</p>
+              <p className="text-xl font-bold">{formatCurrency(stats.groupTotal)}</p>
+              <p className="text-emerald-200 text-[9px] font-medium">{stats.groupShares.toFixed(2)} Total Shares</p>
+            </div>
+            <div className="text-right">
+              <p className="text-emerald-100 text-[10px] font-bold uppercase tracking-widest">Ownership</p>
+              <p className="text-xl font-bold">{stats.ownership.toFixed(2)}%</p>
+            </div>
+          </div>
+        </div>
+        <div className="absolute -right-10 -top-10 w-40 h-40 bg-white/5 rounded-full blur-3xl" />
+      </motion.div>
+
+      {/* Secondary Stats */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <motion.div
+          initial={{ opacity: 0, x: -20 }}
+          animate={{ opacity: 1, x: 0 }}
+          className="bg-white dark:bg-[#1a1a1a] rounded-2xl p-4 border border-gray-100 dark:border-gray-800 shadow-sm transition-colors duration-300"
+        >
+          <div className="flex items-center justify-between mb-2">
+            <div className="bg-blue-50 dark:bg-blue-900/30 p-2 rounded-lg text-blue-600 dark:text-blue-400">
+              <History size={18} />
+            </div>
+            <span className="text-blue-600 dark:text-blue-400 font-bold text-lg">{stats.userCount}</span>
+          </div>
+          <p className="text-gray-500 dark:text-gray-400 text-[10px] font-bold uppercase tracking-wider">Your Payments</p>
+        </motion.div>
+
+        <motion.div
+          initial={{ opacity: 0, x: 20 }}
+          animate={{ opacity: 1, x: 0 }}
+          className="bg-white dark:bg-[#1a1a1a] rounded-2xl p-4 border border-gray-100 dark:border-gray-800 shadow-sm transition-colors duration-300"
+        >
+          <div className="flex items-center justify-between mb-2">
+            <div className="bg-orange-50 dark:bg-orange-900/30 p-2 rounded-lg text-orange-600 dark:text-orange-400">
+              <AlertCircle size={18} />
+            </div>
+            <span className="text-orange-600 dark:text-orange-400 font-bold text-lg">{stats.missed}</span>
+          </div>
+          <p className="text-gray-500 dark:text-gray-400 text-[10px] font-bold uppercase tracking-wider">Missed Sundays</p>
+        </motion.div>
+
+        <motion.div
+          initial={{ opacity: 0, x: -20 }}
+          animate={{ opacity: 1, x: 0 }}
+          className="bg-white dark:bg-[#1a1a1a] rounded-2xl p-4 border border-gray-100 dark:border-gray-800 shadow-sm transition-colors duration-300"
+        >
+          <div className="flex items-center justify-between mb-2">
+            <div className="bg-purple-50 dark:bg-purple-900/30 p-2 rounded-lg text-purple-600 dark:text-purple-400">
+              <Users size={18} />
+            </div>
+            <span className="text-purple-600 dark:text-purple-400 font-bold text-lg">{allContributions.length}</span>
+          </div>
+          <p className="text-gray-500 dark:text-gray-400 text-[10px] font-bold uppercase tracking-wider">Group Records</p>
+        </motion.div>
+
+        <motion.div
+          initial={{ opacity: 0, x: 20 }}
+          animate={{ opacity: 1, x: 0 }}
+          className="bg-white dark:bg-[#1a1a1a] rounded-2xl p-4 border border-gray-100 dark:border-gray-800 shadow-sm transition-colors duration-300"
+        >
+          <div className="flex items-center justify-between mb-2">
+            <div className="bg-emerald-50 dark:bg-emerald-900/30 p-2 rounded-lg text-emerald-600 dark:text-emerald-400">
+              <TrendingUp size={18} />
+            </div>
+            <span className="text-emerald-600 dark:text-emerald-400 font-bold text-lg">{chartData.length}</span>
+          </div>
+          <p className="text-gray-500 dark:text-gray-400 text-[10px] font-bold uppercase tracking-wider">Weeks Active</p>
+        </motion.div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-5 gap-10">
-        <div className="lg:col-span-3 space-y-8">
-           <div className="bg-white dark:bg-[#111111] rounded-[2.5rem] p-8 md:p-10 border border-gray-100 dark:border-gray-800 shadow-sm relative overflow-hidden group">
-              <div className="flex items-center justify-between mb-10">
-                <div className="flex items-center gap-3">
-                   <div className="w-10 h-10 bg-black dark:bg-white rounded-xl flex items-center justify-center">
-                      <Zap className="w-5 h-5 text-white dark:text-black fill-current" />
-                   </div>
-                   <h3 className="text-lg font-bold tracking-tight dark:text-white">Monthly <span className="text-gray-400">Progress</span></h3>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        {/* Weekly Chart */}
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.2 }}
+          className="bg-white dark:bg-[#1a1a1a] rounded-3xl p-6 border border-gray-100 dark:border-gray-800 shadow-sm h-full transition-colors duration-300"
+        >
+          <div className="flex items-center justify-between mb-6">
+            <h3 className="text-gray-900 dark:text-white font-bold">Weekly Family Growth</h3>
+            <div className="flex items-center text-emerald-600 dark:text-emerald-400 text-[10px] font-bold uppercase">
+              <TrendingUp size={12} className="mr-1" />
+              From Week 1
+            </div>
+          </div>
+          <div className="h-48 w-full overflow-x-auto no-scrollbar smooth-scroll" ref={chartContainerRef}>
+            <div style={{ minWidth: `${Math.max(100, chartData.length * 60)}px`, height: '100%' }}>
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={chartData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
+                  <defs>
+                    <linearGradient id="barGradient" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0%" stopColor="#10b981" stopOpacity={1} />
+                      <stop offset="100%" stopColor="#059669" stopOpacity={0.8} />
+                    </linearGradient>
+                    <linearGradient id="activeBarGradient" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0%" stopColor="#059669" stopOpacity={1} />
+                      <stop offset="100%" stopColor="#047857" stopOpacity={1} />
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={theme === 'dark' ? '#333' : '#f3f4f6'} />
+                  <XAxis 
+                    dataKey="week" 
+                    axisLine={false} 
+                    tickLine={false} 
+                    tick={{ fontSize: 10, fill: '#9ca3af', fontWeight: 'bold' }} 
+                  />
+                  <YAxis hide />
+                  <Tooltip 
+                    cursor={{ fill: theme === 'dark' ? 'rgba(255, 255, 255, 0.03)' : 'rgba(16, 185, 129, 0.05)' }}
+                    content={({ active, payload }) => {
+                      if (active && payload && payload.length) {
+                        return (
+                          <div className="bg-white dark:bg-[#1a1a1a] p-3 rounded-2xl shadow-xl border border-gray-100 dark:border-gray-800 transition-colors duration-300">
+                            <p className="text-[10px] font-bold text-gray-400 dark:text-gray-500 uppercase tracking-widest mb-1">
+                              {payload[0].payload.dateRange}
+                            </p>
+                            <p className="text-lg font-bold text-gray-900 dark:text-white">
+                              {formatCurrency(payload[0].value as number)}
+                            </p>
+                          </div>
+                        );
+                      }
+                      return null;
+                    }}
+                  />
+                  <Bar dataKey="amount" radius={[6, 6, 0, 0]} animationDuration={1000}>
+                    {chartData.map((_entry, index) => (
+                      <Cell 
+                        key={`cell-${index}`} 
+                        fill={index === chartData.length - 1 ? "url(#activeBarGradient)" : "url(#barGradient)"} 
+                      />
+                    ))}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+        </motion.div>
+
+        {/* Recent Activity (Group Wide) */}
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.3 }}
+          className="space-y-4 h-full"
+        >
+          <div className="flex items-center justify-between">
+            <h3 className="text-gray-900 dark:text-white font-bold">Recent Group Activity</h3>
+            <Users size={18} className="text-gray-400 dark:text-gray-500" />
+          </div>
+          
+          <div className="space-y-3">
+            {allContributions.length > 0 ? (
+              allContributions.slice(0, 5).map((c) => (
+                <div key={c.id} className="bg-white dark:bg-[#1a1a1a] p-4 rounded-2xl border border-gray-100 dark:border-gray-800 flex items-center justify-between shadow-sm transition-colors duration-300">
+                  <div className="flex items-center space-x-3 overflow-hidden">
+                    <div 
+                      onClick={() => (c.profiles as any)?.profile_picture && setShowImageModal((c.profiles as any).profile_picture)}
+                      className={cn(
+                        "w-10 h-10 rounded-full flex-shrink-0 overflow-hidden border border-gray-100 dark:border-gray-800",
+                        (c.profiles as any)?.profile_picture ? "cursor-pointer" : "bg-gray-50 dark:bg-gray-800 flex items-center justify-center text-gray-400 dark:text-gray-500"
+                      )}
+                    >
+                      {(c.profiles as any)?.profile_picture ? (
+                        <img src={(c.profiles as any).profile_picture} alt="" className="w-full h-full object-cover" />
+                      ) : (
+                        <ArrowUpRight size={18} />
+                      )}
+                    </div>
+                    <div className="min-w-0">
+                      <p className="font-bold text-gray-900 dark:text-white truncate">
+                        {c.user_id === user?.id ? 'You' : (c.profiles as any)?.name}
+                      </p>
+                      <p className="text-gray-500 dark:text-gray-400 text-[10px] font-medium uppercase tracking-wider">
+                        {format(new Date(c.date), 'MMM d, yyyy')}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="text-right flex-shrink-0">
+                    <p className="font-bold text-gray-900 dark:text-white">{formatCurrency(c.amount)}</p>
+                    <span className="text-[8px] bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400 px-1.5 py-0.5 rounded-full font-bold uppercase">Verified</span>
+                  </div>
                 </div>
-              </div>
-              <div className="h-64 flex items-end gap-3 justify-between">
-                 {[40, 70, 45, 90, 65, 30, 85, 55, 95, 40].map((h, i) => (
-                   <div key={i} className="flex-1 bg-gray-100 dark:bg-gray-800 rounded-t-lg"></div>
-                 ))}
-              </div>
-           </div>
-        </div>
-
-        <div className="lg:col-span-2 space-y-8">
-           <div className="p-8 bg-white dark:bg-[#111111] rounded-[2.5rem] border border-gray-100 dark:border-gray-800 h-full">
-              <div className="flex items-center justify-between mb-8">
-                 <h3 className="text-sm font-bold uppercase tracking-widest text-gray-400">Recent Activity</h3>
-                 <Clock className="w-4 h-4 text-gray-400" />
-              </div>
-              <div className="space-y-8">
-                 {recentActivities.length > 0 ? recentActivities.map((item) => (
-                   <div key={item.id} className="relative pl-8 pb-8 last:pb-0 border-l border-gray-100 dark:border-gray-800 last:border-0 text-left">
-                      <div className="absolute top-0 left-[-5px] w-[10px] h-[10px] bg-black dark:bg-white rounded-full"></div>
-                      <div className="flex flex-col gap-1">
-                         <div className="flex items-center justify-between">
-                            <span className="text-xs font-black dark:text-white uppercase tracking-tight">{item.user}</span>
-                            <span className="text-[9px] font-bold text-gray-400 uppercase">{item.time}</span>
-                         </div>
-                         <p className="text-xs text-gray-500 font-medium leading-relaxed">{item.action}</p>
-                      </div>
-                   </div>
-                 )) : (
-                   <p className="text-xs text-gray-400 italic">No recent activity detected.</p>
-                 )}
-              </div>
-           </div>
-        </div>
+              ))
+            ) : (
+              <div className="text-center py-8 text-gray-400 dark:text-gray-500 italic">No activity recorded</div>
+            )}
+          </div>
+        </motion.div>
       </div>
+
+      {/* Image Modal */}
+      {showImageModal && (
+        <div 
+          className="fixed inset-0 z-[100] bg-black/90 flex items-center justify-center p-4 backdrop-blur-sm"
+          onClick={() => setShowImageModal(null)}
+        >
+          <motion.div
+            initial={{ scale: 0.9, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            className="relative max-w-full max-h-full"
+          >
+            <img src={showImageModal} alt="Full View" className="max-w-full max-h-[80vh] rounded-2xl shadow-2xl" />
+            <button 
+              onClick={() => setShowImageModal(null)}
+              className="absolute -top-12 right-0 text-white hover:text-emerald-400 transition-colors"
+            >
+              <X size={32} />
+            </button>
+          </motion.div>
+        </div>
+      )}
     </div>
   );
 };
