@@ -1,41 +1,40 @@
 import React from 'react';
 import { NavLink } from 'react-router-dom';
-import { LayoutDashboard, Users, DollarSign, User, ShieldCheck } from 'lucide-react';
-import { useAuth } from '../context/AuthContext';
+import { 
+  LayoutDashboard, 
+  Users, 
+  Wallet, 
+  BookOpen, 
+  FolderKanban 
+} from 'lucide-react';
+import { motion } from 'framer-motion';
 import { cn } from '../lib/utils';
 
 const BottomNav: React.FC = () => {
-  const { isAdmin } = useAuth();
-
   const navItems = [
-    { to: '/', icon: LayoutDashboard, label: 'Dashboard' },
-    { to: '/members', icon: Users, label: 'Members' },
-    { to: '/contributions', icon: DollarSign, label: 'Savings' },
-    { to: '/profile', icon: User, label: 'Profile' },
+    { icon: LayoutDashboard, label: 'Home', path: '/' },
+    { icon: Wallet, label: 'Safe', path: '/treasury' },
+    { icon: Users, label: 'Members', path: '/members' },
+    { icon: FolderKanban, label: 'Goals', path: '/projects' },
+    { icon: BookOpen, label: 'Rules', path: '/constitution' },
   ];
 
-  if (isAdmin) {
-    navItems.push({ to: '/admin', icon: ShieldCheck, label: 'Admin' });
-  }
-
   return (
-    <div className="flex justify-center z-40 md:hidden transition-colors duration-300">
-      <nav className="w-full max-w-5xl bg-white dark:bg-[#111111] border-t border-gray-200 dark:border-gray-800 px-4 py-2 flex justify-around items-center pb-safe shadow-[0_-4px_10px_rgba(0,0,0,0.05)]">
+    <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 w-[92%] max-w-md md:hidden">
+      <nav className="bg-white dark:bg-[#0a0a0a] border border-gray-100 dark:border-gray-800 rounded-3xl p-1.5 flex items-center justify-between shadow-2xl relative">
         {navItems.map((item) => (
-        <NavLink
-          key={item.to}
-          to={item.to}
-          className={({ isActive }) =>
-            cn(
-              "flex flex-col items-center space-y-1 transition-colors duration-200",
-              isActive ? "text-emerald-600 dark:text-emerald-400" : "text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300"
-            )
-          }
-        >
-          <item.icon size={24} />
-          <span className="text-[10px] font-medium uppercase tracking-wider">{item.label}</span>
-        </NavLink>
-      ))}
+          <NavLink
+            key={item.path}
+            to={item.path}
+            className={({ isActive }) => cn(
+              "relative flex flex-col items-center justify-center py-2 px-3 transition-all duration-300 z-10 rounded-2xl",
+              isActive ? "text-emerald-500 bg-emerald-50 dark:bg-emerald-500/10" : "text-gray-400 hover:text-gray-600"
+            )}
+          >
+            <item.icon className="w-5 h-5 mb-1" />
+            <span className="text-[10px] font-bold tracking-tight">{item.label}</span>
+          </NavLink>
+        ))}
       </nav>
     </div>
   );

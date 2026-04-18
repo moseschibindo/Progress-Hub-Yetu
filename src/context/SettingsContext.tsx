@@ -1,57 +1,66 @@
-import React, { createContext, useContext, useEffect, useState } from 'react';
+import React, { createContext, useContext, useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
-import { AppSetting } from '../types';
+import { AppSettings } from '../types';
 
 interface SettingsContextType {
-  settings: Record<string, string>;
+  notifications: boolean;
+  setNotifications: (val: boolean) => void;
+  appSettings: AppSettings | null;
   loading: boolean;
-  refreshSettings: () => Promise<void>;
+  updateAppSettings: (updates: Partial<AppSettings>) => Promise<void>;
 }
 
 const SettingsContext = createContext<SettingsContextType | undefined>(undefined);
 
 export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [settings, setSettings] = useState<Record<string, string>>({
-    app_name: 'Progress Hub Tetu',
-    app_slogan: 'Secure Your Future, Together',
-    app_logo: '',
-    hero_image: '',
-    share_value: '25',
-    launch_date: '2026-04-06',
-    weekly_motivation: 'Small steps lead to big changes. Keep saving!',
-  });
+  const [notifications, setNotifications] = useState(true);
+  const [appSettings, setAppSettings] = useState<AppSettings | null>(null);
   const [loading, setLoading] = useState(true);
-
-  const fetchSettings = async () => {
-    const { data, error } = await supabase.from('settings').select('*');
-    if (!error && data) {
-      const settingsMap = data.reduce((acc, curr) => {
-        acc[curr.key] = curr.value;
-        return acc;
-      }, {} as Record<string, string>);
-      setSettings(prev => ({ ...prev, ...settingsMap }));
-    }
-    setLoading(false);
-  };
 
   useEffect(() => {
     fetchSettings();
-
-    // Real-time settings updates
-    const channel = supabase
-      .channel('settings-changes')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'settings' }, () => {
-        fetchSettings();
-      })
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
   }, []);
 
+  const fetchSettings = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('app_settings')
+        .select('*')
+        .single();
+      
+      if (error) throw error;
+      setAppSettings(data);
+    } catch (err) {
+      console.error('Error fetching settings:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const updateAppSettings = async (updates: Partial<AppSettings>) => {
+    if (!appSettings) return;
+    try {
+      const { error } = await supabase
+        .from('app_settings')
+        .update(updates)
+        .eq('id', appSettings.id);
+      
+      if (error) throw error;
+      setAppSettings({ ...appSettings, ...updates });
+    } catch (err) {
+      console.error('Error updating settings:', err);
+      throw err;
+    }
+  };
+
   return (
-    <SettingsContext.Provider value={{ settings, loading, refreshSettings: fetchSettings }}>
+    <SettingsContext.Provider value={{ 
+      notifications, 
+      setNotifications, 
+      appSettings, 
+      loading, 
+      updateAppSettings 
+    }}>
       {children}
     </SettingsContext.Provider>
   );
@@ -59,8 +68,6 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
 export const useSettings = () => {
   const context = useContext(SettingsContext);
-  if (context === undefined) {
-    throw new Error('useSettings must be used within a SettingsProvider');
-  }
+  if (!context) throw new Error('useSettings must be used within SettingsProvider');
   return context;
 };
